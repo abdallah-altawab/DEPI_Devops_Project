@@ -1,0 +1,32 @@
+
+name: Physio API CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  POSTGRES_DB: physio_db
+  POSTGRES_USER: physio_user
+  POSTGRES_PASSWORD: replace_me
+  DATABASE_URL: postgresql+psycopg://physio_user:replace_me@db:5432/physio_db
+
+jobs:
+  build-and-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate Docker Compose
+        run: docker compose config --quiet
+
+      - name: Build Docker images
+        run: docker compose build api migrate tests
+
+      - name: Run automated tests
+        run: docker compose run --rm tests
