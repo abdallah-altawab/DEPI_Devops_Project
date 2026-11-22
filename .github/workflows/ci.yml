@@ -15,7 +15,7 @@ env:
 
 jobs:
   build-and-test:
-    name: Build and Test
+    name: Build, Test and Security Scan
     runs-on: ubuntu-latest
 
     permissions:
@@ -27,21 +27,82 @@ jobs:
         with:
           fetch-depth: 0
 
+      # 1. Secret Scanning
       - name: Secret Scanning - Gitleaks
         uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_ENABLE_COMMENTS: false
 
+      # 2. Setup Python Security Tools
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install Security Scanners
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pip-audit bandit
+
+      # 3. Dependency Vulnerability Scanning
+      - name: Dependency Scanning - pip-audit
+        run: |
+          python -m pip_audit \
+            -r requirements.txt \
+            --format json \
+            --output pip-audit-report.json
+
+      # 4. Python Source Code Security Scanning
+      - name: Static Code Analysis - Bandit
+        run: |
+          python -m bandit \
+            -r app \
+            -ll \
+            -f json \
+            -o bandit-report.json
+
+      # 5. Docker Compose Validation
       - name: Validate Docker Compose
         run: docker compose config --quiet
 
-      - name: Build Docker images
+      # 6. Build Docker Images
+      - name: Build Docker Images
         run: docker compose build api migrate tests
 
-      - name: Run automated tests
+      # 7. Automated Tests
+      - name: Run Automated Tests
         run: docker compose run --rm tests
 
+      # 8. Docker Image Vulnerability Scanning
+      - name: Docker Image Scanning - Trivy
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$PWD:/reports" \
+            aquasec/trivy:latest image \
+            --scanners vuln \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --exit-code 1 \
+            --format json \
+            --output /reports/trivy-report.json \
+            physio-api:ci
+
+      # 9. Upload Security Reports
+      - name: Upload Security Scan Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-scan-reports
+          path: |
+            pip-audit-report.json
+            bandit-report.json
+            trivy-report.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  # 10. Publish Docker Image to GHCR
   publish-image:
     name: Publish Docker Image
     runs-on: ubuntu-latest

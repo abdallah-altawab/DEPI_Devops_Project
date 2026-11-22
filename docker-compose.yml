@@ -31,6 +31,7 @@ services:
     restart: "no"
 
   api:
+    image: physio-api:ci
     build:
       context: .
       dockerfile: Dockerfile
